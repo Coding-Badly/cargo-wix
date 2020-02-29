@@ -360,7 +360,8 @@ impl Execution {
         let manifest = super::manifest(self.input.as_ref())?;
         let name = self.name(&manifest)?;
         debug!("name = {:?}", name);
-        let version = self.version(&manifest)?;
+        let version = self.semantic_version(&manifest)?;
+        let version = self.candle_version(&version)?;
         debug!("version = {:?}", version);
         let compiler_args = self.compiler_args(&manifest);
         debug!("compiler_args = {:?}", compiler_args);
@@ -806,7 +807,7 @@ impl Execution {
     fn msi_destination(
         &self,
         name: &str,
-        version: &Version,
+        version: &str,
         platform: Platform,
         debug_name: bool,
         manifest: &Value,
@@ -1028,7 +1029,7 @@ impl Execution {
         }
     }
 
-    fn version(&self, manifest: &Value) -> Result<Version> {
+    fn semantic_version(&self, manifest: &Value) -> Result<Version> {
         if let Some(ref v) = self.version {
             Version::parse(v).map_err(Error::from)
         } else if let Some(pkg_meta_wix_version) = manifest
@@ -1051,6 +1052,62 @@ impl Execution {
                 .ok_or(Error::Manifest("version"))
                 .and_then(|s| Version::parse(s).map_err(Error::from))
         }
+    }
+
+    const LETTER_A_BASE: u16 = 255 - 26 + 1;
+    const MAX_NUMBER_VALUE: u64 = (Self::LETTER_A_BASE as u64) - 1;
+
+    fn build_byte_from_char(pre_an: &str) -> Result<u16> {
+        if pre_an.len() > 0 {
+            match pre_an.chars().nth(0).unwrap() {
+                c @ 'A'..='Z' => Ok((c as u16) - ('A' as u16) + Self::LETTER_A_BASE),
+                c @ 'a'..='z' => Ok((c as u16) - ('a' as u16) + Self::LETTER_A_BASE),
+                _ => {
+                    Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the first letter of the value ({}) must be an alphabetic letter (a-z or A-Z).", pre_an)))
+                },
+            }
+        }
+        else {
+            Err(Error::Generic("An error occurred trying to convert the pre-release data to a build number: the data is missing.".to_string()))
+        }
+    }
+
+    fn build_byte_from_identifier(identifier: &semver::Identifier) -> Result<u16> {
+        match identifier {
+            semver::Numeric(n) =>
+                if *n <= Self::MAX_NUMBER_VALUE {
+                    Ok(*n as u16)
+                }
+                else {
+                    Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the actual value ({}) exceeds the maximum allowed value ({}).", *n, Self::MAX_NUMBER_VALUE)))
+                },
+            semver::AlphaNumeric(s) =>
+                Self::build_byte_from_char(s),
+        }
+    }
+
+    const BUILD_RELEASE_VALUE: u16 = std::u16::MAX;
+
+    fn build_value_from_pre(pre: &[semver::Identifier]) -> Result<u16> {
+        let identifier_count = pre.len();
+        if identifier_count > 0 {
+            let mut value = 0;
+            if identifier_count >= 1 {
+                value = Self::build_byte_from_identifier(&pre[0])? << 8;
+            }
+            if identifier_count >= 2 {
+                value = value | Self::build_byte_from_identifier(&pre[1])?;
+            }
+            Ok(value)
+        }
+        else {
+            Ok(Self::BUILD_RELEASE_VALUE)
+        }
+    }
+
+    fn candle_version(&self, version: &Version) -> Result<String> {
+        let build = Self::build_value_from_pre(&version.pre)?;
+        Ok(format!("{}.{}.{}.{}", version.major, version.minor, version.patch, build))
     }
 }
 
@@ -1289,6 +1346,7 @@ mod tests {
 
     mod execution {
         use super::*;
+        use regex::Regex;
 
         #[test]
         fn debug_build_metadata_works() {
@@ -1323,7 +1381,7 @@ mod tests {
             "#;
             let execution = Execution::default();
             let version = execution
-                .version(&PKG_META_WIX.parse::<Value>().unwrap())
+                .semantic_version(&PKG_META_WIX.parse::<Value>().unwrap())
                 .unwrap();
             assert_eq!(version, Version::parse("2.1.0").unwrap());
         }
@@ -1391,7 +1449,7 @@ mod tests {
             let output = execution
                 .msi_destination(
                     "Different",
-                    &"2.1.0".parse::<Version>().unwrap(),
+                    &format!("{}", &"2.1.0".parse::<Version>().unwrap()),
                     Platform::X64,
                     false,
                     &PKG_META_WIX.parse::<Value>().unwrap(),
@@ -1493,6 +1551,85 @@ mod tests {
                 execution.wixobj_destination().unwrap(),
                 PathBuf::from("target\\wix\\")
             )
+        }
+
+        struct SemanticVersionHelper {
+            re: Regex,
+            manifest: Value,
+        }
+
+        impl SemanticVersionHelper {
+            fn new() -> Self {
+                Self {
+                    re: Regex::new(r"^\d+(\.\d+){2,3}$").unwrap(),
+                    manifest: "".parse::<Value>().unwrap(),
+                }
+            }
+            fn prepare_semantic_version(&self, text_version: &str) -> (Execution, Version) {
+                let execution = Builder::new()
+                    .version(Some(text_version))
+                    .build();
+                let semantic_version = execution
+                        .semantic_version(&self.manifest)
+                        .unwrap();
+                (execution, semantic_version)
+            }
+            fn assert_match(&self, text_version: &str, expected_version: &str) {
+                let (execution, semantic_version ) = self.prepare_semantic_version(text_version);
+                let candle_version = execution
+                    .candle_version(&semantic_version)
+                    .unwrap();
+                assert!(self.re.is_match(&candle_version), "candle_version = {}", candle_version);
+                assert_eq!(candle_version, expected_version);
+            }
+            fn expect_err(&self, text_version: &str) {
+                let (execution, semantic_version ) = self.prepare_semantic_version(text_version);
+                let _candle_version = execution
+                    .candle_version(&semantic_version)
+                    .expect_err("Expected an error funneling a semantic version to a candle version");
+            }
+        }
+
+        #[test]
+        fn sematic_version_correctly_funneled() {
+            /* Semantic Versions can be suffixed with pre-release or metadata sections.  If a
+            semver::Version containing any suffix is used then compilation fails with error
+            CNDL0108 followed by error CNDL0010.  candle, the WiX compiler, only accepts versions
+            with up to four segments where each segment is separated by a dot and each segment is
+            a positive integer less than 65536.  The upper limit should not a validated here.  If
+            the limit is ever raised and the value is restricted here then we've blocked our users
+            from using a valid feature.  This test ensures only valid values are passed to candle;
+            that the semver::Version we use is funneled to a valid candle version. */
+
+            let helper = SemanticVersionHelper::new();
+            helper.assert_match("0.0.0", "0.0.0.65535");
+            helper.assert_match("65536.65536.65536", "65536.65536.65536.65535");
+            helper.assert_match("0.0.0-0", "0.0.0.0");
+            helper.assert_match("1.2.3-1", "1.2.3.256");            //   1*256 +   0
+            helper.assert_match("1.2.3-2", "1.2.3.512");            //   2*256 +   0
+            helper.assert_match("1.2.3-0.1", "1.2.3.1");            //   0*256 +   1
+            helper.assert_match("1.2.3-0.229", "1.2.3.229");        //   0*256 + 229
+            helper.assert_match("1.2.3-229.229", "1.2.3.58853");    // 229*256 + 229 = 58853
+            helper.assert_match("3.2.1+FAST", "3.2.1.65535");
+            helper.assert_match("0.0.0-A", "0.0.0.58880");          // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-M", "0.0.0.61952");          // (230+12)*256 +   0 = 61952
+            helper.assert_match("0.0.0-Z", "0.0.0.65280");          // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a", "0.0.0.58880");          // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-a0", "0.0.0.58880");         // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-az", "0.0.0.58880");         // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-m", "0.0.0.61952");          // (230+12)*256 +   0 = 61952
+            helper.assert_match("0.0.0-z", "0.0.0.65280");          // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-A.0", "0.0.0.58880");        // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-Z.0", "0.0.0.65280");        // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a.0", "0.0.0.58880");        // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-z.0", "0.0.0.65280");        // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a.1", "0.0.0.58881");        // (230+ 0)*256 +   1 = 58881
+            helper.assert_match("0.0.0-z.229", "0.0.0.65509");      // (230+25)*256 + 229 = 65509
+            helper.expect_err("1.2.3-0.230");
+            helper.expect_err("1.2.3-230.0");
+            helper.expect_err("1.2.3-230.230");
+            helper.expect_err("1.2.3-A.230");
+            helper.expect_err("1.2.3-z.230");
         }
     }
 }
