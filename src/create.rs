@@ -1059,7 +1059,7 @@ impl Execution {
     const MAX_NUMBER_VALUE: u64 = (Self::LETTER_A_BASE as u64) - 1;
 
     fn build_byte_from_char(pre_an: &str) -> Result<u16> {
-        if !pre_an.is_empty() > 0 {
+        if !pre_an.is_empty() {
             match pre_an.chars().nth(0).unwrap() {
                 c @ 'A'..='Z' => Ok((c as u16) - ('A' as u16) + Self::LETTER_A_BASE),
                 c @ 'a'..='z' => Ok((c as u16) - ('a' as u16) + Self::LETTER_A_BASE),
