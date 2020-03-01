@@ -538,11 +538,12 @@ impl Execution {
         if tidy {
             for wixobj_source in &wixobj_sources {
                 match std::fs::remove_file(wixobj_source) {
-                    Ok(..) => {},
+                    Ok(..) => {}
                     Err(e) => warn!(
                         "Unable to remove the intermediate file '{}': {}",
                         wixobj_source.display(),
-                        e),
+                        e
+                    ),
                 }
             }
         }
