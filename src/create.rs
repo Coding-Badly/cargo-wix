@@ -1030,9 +1030,22 @@ impl Execution {
         }
     }
 
+    fn dereference<'a>(root: &'a Value, pointer: &str) -> Option<&'a str> {
+        let segments = pointer.split('.');
+        let mut rover = root;
+        for segment in segments {
+            if let Some(next) = rover.get(segment) {
+                rover = next;
+            } else {
+                return None;
+            }
+        }
+        rover.as_str()
+    }
+
     fn semantic_version(&self, manifest: &Value) -> Result<Version> {
-        if let Some(ref v) = self.version {
-            Version::parse(v).map_err(Error::from)
+        let version_as_str = if let Some(ref v) = self.version {
+            v
         } else if let Some(pkg_meta_wix_version) = manifest
             .get("package")
             .and_then(|p| p.as_table())
@@ -1043,16 +1056,23 @@ impl Execution {
             .and_then(|t| t.get("version"))
             .and_then(|v| v.as_str())
         {
-            Version::parse(pkg_meta_wix_version).map_err(Error::from)
+            pkg_meta_wix_version
         } else {
             manifest
                 .get("package")
                 .and_then(|p| p.as_table())
                 .and_then(|t| t.get("version"))
                 .and_then(|v| v.as_str())
-                .ok_or(Error::Manifest("version"))
-                .and_then(|s| Version::parse(s).map_err(Error::from))
-        }
+                .ok_or(Error::Manifest("version"))?
+        };
+
+        let version_as_str = if version_as_str.starts_with('*') {
+            Self::dereference(&manifest, &version_as_str[1..]).ok_or(Error::Manifest("version"))?
+        } else {
+            version_as_str
+        };
+
+        Version::parse(version_as_str).map_err(Error::from)
     }
 
     const LETTER_A_BASE: u16 = 255 - 26 + 1;
