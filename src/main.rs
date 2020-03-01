@@ -1331,6 +1331,13 @@ fn main() {
                         .long("timestamp")
                         .takes_value(true))
                     .arg(verbose.clone()))
+                .arg(Arg::with_name("tidy")
+                    .help("Deletes intermediate files on success")
+                    .long_help("Deletes the intermediate files (*.wixobj) from \
+                        the output directory if building the installer is \
+                        successful.")
+                    .long("tidy")
+                    .short("T"))
                 .arg(verbose)
         ).get_matches();
     let matches = matches.subcommand_matches(SUBCOMMAND_NAME).unwrap();
@@ -1474,6 +1481,7 @@ fn main() {
             create.name(matches.value_of("name"));
             create.no_build(matches.is_present("no-build"));
             create.output(matches.value_of("output"));
+            create.tidy(matches.is_present("tidy"));
             create.version(matches.value_of("install-version"));
             create.build().run()
         }

@@ -64,6 +64,7 @@ pub struct Builder<'a> {
     locale: Option<&'a str>,
     name: Option<&'a str>,
     no_build: bool,
+    tidy: bool,
     output: Option<&'a str>,
     version: Option<&'a str>,
 }
@@ -84,6 +85,7 @@ impl<'a> Builder<'a> {
             locale: None,
             name: None,
             no_build: false,
+            tidy: false,
             output: None,
             version: None,
         }
@@ -271,6 +273,16 @@ impl<'a> Builder<'a> {
         self
     }
 
+    /// Enables the removal of intermediate files on success.
+    ///
+    /// The compiler creates intermediate files that are passed to the linker.
+    /// If the installer is successfully built and tidy is true then the
+    /// intermediate files are deleted.
+    pub fn tidy(&mut self, v: bool) -> &mut Self {
+        self.tidy = v;
+        self
+    }
+
     /// Sets the version.
     ///
     /// This overrides the `version` field of the package's manifest
@@ -308,6 +320,7 @@ impl<'a> Builder<'a> {
             name: self.name.map(String::from),
             no_build: self.no_build,
             output: self.output.map(String::from),
+            tidy: self.tidy,
             version: self.version.map(String::from),
         }
     }
@@ -335,6 +348,7 @@ pub struct Execution {
     name: Option<String>,
     no_build: bool,
     output: Option<String>,
+    tidy: bool,
     version: Option<String>,
 }
 
@@ -355,6 +369,7 @@ impl Execution {
         debug!("self.name = {:?}", self.name);
         debug!("self.no_build = {:?}", self.no_build);
         debug!("self.output = {:?}", self.output);
+        debug!("self.tidy = {:?}", self.tidy);
         debug!("self.version = {:?}", self.version);
         let manifest_path = super::cargo_toml_file(self.input.as_ref())?;
         debug!("manifest_path = {:?}", manifest_path);
@@ -377,6 +392,8 @@ impl Execution {
         debug!("debug_build = {:?}", debug_build);
         let debug_name = self.debug_name(&manifest);
         debug!("debug_name = {:?}", debug_name);
+        let tidy = self.tidy(&manifest);
+        debug!("tidy = {:?}", tidy);
         let wxs_sources = self.wxs_sources(&manifest)?;
         debug!("wxs_sources = {:?}", wxs_sources);
         let wixobj_destination = self.wixobj_destination()?;
@@ -528,6 +545,18 @@ impl Execution {
                 self.capture_output,
             ));
         }
+        if tidy {
+            for wixobj_source in &wixobj_sources {
+                match std::fs::remove_file(wixobj_source) {
+                    Ok(..) => {}
+                    Err(e) => warn!(
+                        "Unable to remove the intermediate file '{}': {}",
+                        wixobj_source.display(),
+                        e
+                    ),
+                }
+            }
+        }
         Ok(())
     }
 
@@ -618,6 +647,25 @@ impl Execution {
             .and_then(|c| c.as_bool())
         {
             pkg_meta_wix_debug_name
+        } else {
+            false
+        }
+    }
+
+    fn tidy(&self, manifest: &Value) -> bool {
+        if self.tidy {
+            true
+        } else if let Some(pkg_meta_wix_tidy) = manifest
+            .get("package")
+            .and_then(|p| p.as_table())
+            .and_then(|t| t.get("metadata"))
+            .and_then(|m| m.as_table())
+            .and_then(|t| t.get("wix"))
+            .and_then(|w| w.as_table())
+            .and_then(|t| t.get("tidy"))
+            .and_then(|v| v.as_bool())
+        {
+            pkg_meta_wix_tidy
         } else {
             false
         }
