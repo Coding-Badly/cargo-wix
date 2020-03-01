@@ -1067,23 +1067,21 @@ impl Execution {
                     Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the first letter of the value ({}) must be an alphabetic letter (a-z or A-Z).", pre_an)))
                 },
             }
-        }
-        else {
+        } else {
             Err(Error::Generic("An error occurred trying to convert the pre-release data to a build number: the data is missing.".to_string()))
         }
     }
 
     fn build_byte_from_identifier(identifier: &semver::Identifier) -> Result<u16> {
         match identifier {
-            semver::Numeric(n) =>
+            semver::Numeric(n) => {
                 if *n <= Self::MAX_NUMBER_VALUE {
                     Ok(*n as u16)
-                }
-                else {
+                } else {
                     Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the actual value ({}) exceeds the maximum allowed value ({}).", *n, Self::MAX_NUMBER_VALUE)))
-                },
-            semver::AlphaNumeric(s) =>
-                Self::build_byte_from_char(s),
+                }
+            }
+            semver::AlphaNumeric(s) => Self::build_byte_from_char(s),
         }
     }
 
@@ -1100,15 +1098,17 @@ impl Execution {
                 value = value | Self::build_byte_from_identifier(&pre[1])?;
             }
             Ok(value)
-        }
-        else {
+        } else {
             Ok(Self::BUILD_RELEASE_VALUE)
         }
     }
 
     fn candle_version(&self, version: &Version) -> Result<String> {
         let build = Self::build_value_from_pre(&version.pre)?;
-        Ok(format!("{}.{}.{}.{}", version.major, version.minor, version.patch, build))
+        Ok(format!(
+            "{}.{}.{}.{}", 
+            version.major, version.minor, version.patch, build
+        ))
     }
 }
 
@@ -1567,27 +1567,25 @@ mod tests {
                 }
             }
             fn prepare_semantic_version(&self, text_version: &str) -> (Execution, Version) {
-                let execution = Builder::new()
-                    .version(Some(text_version))
-                    .build();
-                let semantic_version = execution
-                        .semantic_version(&self.manifest)
-                        .unwrap();
+                let execution = Builder::new().version(Some(text_version)).build();
+                let semantic_version = execution.semantic_version(&self.manifest).unwrap();
                 (execution, semantic_version)
             }
             fn assert_match(&self, text_version: &str, expected_version: &str) {
-                let (execution, semantic_version ) = self.prepare_semantic_version(text_version);
-                let candle_version = execution
-                    .candle_version(&semantic_version)
-                    .unwrap();
-                assert!(self.re.is_match(&candle_version), "candle_version = {}", candle_version);
+                let (execution, semantic_version) = self.prepare_semantic_version(text_version);
+                let candle_version = execution.candle_version(&semantic_version).unwrap();
+                assert!(
+                    self.re.is_match(&candle_version), 
+                    "candle_version = {}", 
+                    candle_version
+                );
                 assert_eq!(candle_version, expected_version);
             }
             fn expect_err(&self, text_version: &str) {
-                let (execution, semantic_version ) = self.prepare_semantic_version(text_version);
-                let _candle_version = execution
-                    .candle_version(&semantic_version)
-                    .expect_err("Expected an error funneling a semantic version to a candle version");
+                let (execution, semantic_version) = self.prepare_semantic_version(text_version);
+                let _candle_version = execution.candle_version(&semantic_version).expect_err(
+                    "Expected an error funneling a semantic version to a candle version",
+                );
             }
         }
 
@@ -1606,26 +1604,26 @@ mod tests {
             helper.assert_match("0.0.0", "0.0.0.65535");
             helper.assert_match("65536.65536.65536", "65536.65536.65536.65535");
             helper.assert_match("0.0.0-0", "0.0.0.0");
-            helper.assert_match("1.2.3-1", "1.2.3.256");            //   1*256 +   0
-            helper.assert_match("1.2.3-2", "1.2.3.512");            //   2*256 +   0
-            helper.assert_match("1.2.3-0.1", "1.2.3.1");            //   0*256 +   1
-            helper.assert_match("1.2.3-0.229", "1.2.3.229");        //   0*256 + 229
-            helper.assert_match("1.2.3-229.229", "1.2.3.58853");    // 229*256 + 229 = 58853
+            helper.assert_match("1.2.3-1", "1.2.3.256"); //   1*256 +   0
+            helper.assert_match("1.2.3-2", "1.2.3.512"); //   2*256 +   0
+            helper.assert_match("1.2.3-0.1", "1.2.3.1"); //   0*256 +   1
+            helper.assert_match("1.2.3-0.229", "1.2.3.229"); //   0*256 + 229
+            helper.assert_match("1.2.3-229.229", "1.2.3.58853"); // 229*256 + 229 = 58853
             helper.assert_match("3.2.1+FAST", "3.2.1.65535");
-            helper.assert_match("0.0.0-A", "0.0.0.58880");          // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-M", "0.0.0.61952");          // (230+12)*256 +   0 = 61952
-            helper.assert_match("0.0.0-Z", "0.0.0.65280");          // (230+25)*256 +   0 = 65280
-            helper.assert_match("0.0.0-a", "0.0.0.58880");          // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-a0", "0.0.0.58880");         // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-az", "0.0.0.58880");         // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-m", "0.0.0.61952");          // (230+12)*256 +   0 = 61952
-            helper.assert_match("0.0.0-z", "0.0.0.65280");          // (230+25)*256 +   0 = 65280
-            helper.assert_match("0.0.0-A.0", "0.0.0.58880");        // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-Z.0", "0.0.0.65280");        // (230+25)*256 +   0 = 65280
-            helper.assert_match("0.0.0-a.0", "0.0.0.58880");        // (230+ 0)*256 +   0 = 58880
-            helper.assert_match("0.0.0-z.0", "0.0.0.65280");        // (230+25)*256 +   0 = 65280
-            helper.assert_match("0.0.0-a.1", "0.0.0.58881");        // (230+ 0)*256 +   1 = 58881
-            helper.assert_match("0.0.0-z.229", "0.0.0.65509");      // (230+25)*256 + 229 = 65509
+            helper.assert_match("0.0.0-A", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-M", "0.0.0.61952"); // (230+12)*256 +   0 = 61952
+            helper.assert_match("0.0.0-Z", "0.0.0.65280"); // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-a0", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-az", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-m", "0.0.0.61952"); // (230+12)*256 +   0 = 61952
+            helper.assert_match("0.0.0-z", "0.0.0.65280"); // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-A.0", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-Z.0", "0.0.0.65280"); // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a.0", "0.0.0.58880"); // (230+ 0)*256 +   0 = 58880
+            helper.assert_match("0.0.0-z.0", "0.0.0.65280"); // (230+25)*256 +   0 = 65280
+            helper.assert_match("0.0.0-a.1", "0.0.0.58881"); // (230+ 0)*256 +   1 = 58881
+            helper.assert_match("0.0.0-z.229", "0.0.0.65509"); // (230+25)*256 + 229 = 65509
             helper.expect_err("1.2.3-0.230");
             helper.expect_err("1.2.3-230.0");
             helper.expect_err("1.2.3-230.230");
