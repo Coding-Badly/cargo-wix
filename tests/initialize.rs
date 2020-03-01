@@ -54,7 +54,6 @@ fn default_works() {
     env::set_current_dir(package.path()).unwrap();
     let result = Execution::default().run();
     env::set_current_dir(original_working_directory).unwrap();
-    println!("{:?}", result);
     assert!(result.is_ok());
     package
         .child(WIX_PATH.as_path())

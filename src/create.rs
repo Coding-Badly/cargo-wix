@@ -360,9 +360,10 @@ impl Execution {
         let manifest = super::manifest(self.input.as_ref())?;
         let name = self.name(&manifest)?;
         debug!("name = {:?}", name);
-        let version = self.semantic_version(&manifest)?;
-        let version = self.candle_version(&version)?;
-        debug!("version = {:?}", version);
+        let semantic_version = self.semantic_version(&manifest)?;
+        debug!("semantic_version = {:?}", semantic_version);
+        let candle_version = self.candle_version(&semantic_version)?;
+        debug!("candle_version = {:?}", candle_version);
         let compiler_args = self.compiler_args(&manifest);
         debug!("compiler_args = {:?}", compiler_args);
         let culture = self.culture(&manifest)?;
@@ -382,7 +383,7 @@ impl Execution {
         let wixobj_destination = self.wixobj_destination()?;
         debug!("wixobj_destination = {:?}", wixobj_destination);
         let msi_destination =
-            self.msi_destination(&name, &version, platform, debug_name, &manifest)?;
+            self.msi_destination(&name, &semantic_version, platform, debug_name, &manifest)?;
         debug!("msi_destination = {:?}", msi_destination);
         let no_build = self.no_build(&manifest);
         debug!("no_build = {:?}", no_build);
@@ -429,7 +430,7 @@ impl Execution {
             compiler.arg("-dProfile=release");
         }
         compiler
-            .arg(format!("-dVersion={}", version))
+            .arg(format!("-dVersion={}", candle_version))
             .arg(format!("-dPlatform={}", platform))
             .arg("-ext")
             .arg("WixUtilExtension")
@@ -807,7 +808,7 @@ impl Execution {
     fn msi_destination(
         &self,
         name: &str,
-        version: &str,
+        version: &Version,
         platform: Platform,
         debug_name: bool,
         manifest: &Value,
@@ -1449,7 +1450,7 @@ mod tests {
             let output = execution
                 .msi_destination(
                     "Different",
-                    &format!("{}", &"2.1.0".parse::<Version>().unwrap()),
+                    &"2.1.0".parse::<Version>().unwrap(),
                     Platform::X64,
                     false,
                     &PKG_META_WIX.parse::<Value>().unwrap(),

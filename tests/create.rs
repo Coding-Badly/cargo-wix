@@ -687,7 +687,6 @@ fn init_with_product_name_option_works() {
         File::open(package.child(PathBuf::from(WIX).join("main.wxs")).path()).unwrap();
     let mut wxs_content = String::new();
     wxs_handle.read_to_string(&mut wxs_content).unwrap();
-    println!("{}", wxs_content);
     let result = run(&mut Builder::default());
     env::set_current_dir(original_working_directory).unwrap();
     result.expect("OK result");
