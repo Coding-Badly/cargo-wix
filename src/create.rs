@@ -485,7 +485,7 @@ impl Execution {
         let installer_kind = installer_kind?;
         let msi_destination = self.msi_destination(
             &name,
-            &version,
+            &semantic_version,
             platform,
             debug_name,
             installer_kind.is_bundle(),
