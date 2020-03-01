@@ -642,7 +642,6 @@ impl Execution {
         }
     }
 
-
     fn tidy(&self, manifest: &Value) -> bool {
         if self.tidy {
             true
