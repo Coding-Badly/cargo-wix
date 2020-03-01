@@ -1106,7 +1106,7 @@ impl Execution {
     fn candle_version(&self, version: &Version) -> Result<String> {
         let build = Self::build_value_from_pre(&version.pre)?;
         Ok(format!(
-            "{}.{}.{}.{}", 
+            "{}.{}.{}.{}",
             version.major, version.minor, version.patch, build
         ))
     }
@@ -1575,8 +1575,8 @@ mod tests {
                 let (execution, semantic_version) = self.prepare_semantic_version(text_version);
                 let candle_version = execution.candle_version(&semantic_version).unwrap();
                 assert!(
-                    self.re.is_match(&candle_version), 
-                    "candle_version = {}", 
+                    self.re.is_match(&candle_version),
+                    "candle_version = {}",
                     candle_version
                 );
                 assert_eq!(candle_version, expected_version);
