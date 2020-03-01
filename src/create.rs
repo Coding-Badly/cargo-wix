@@ -1059,7 +1059,7 @@ impl Execution {
     const MAX_NUMBER_VALUE: u64 = (Self::LETTER_A_BASE as u64) - 1;
 
     fn build_byte_from_char(pre_an: &str) -> Result<u16> {
-        if pre_an.len() > 0 {
+        if !pre_an.is_empty() > 0 {
             match pre_an.chars().nth(0).unwrap() {
                 c @ 'A'..='Z' => Ok((c as u16) - ('A' as u16) + Self::LETTER_A_BASE),
                 c @ 'a'..='z' => Ok((c as u16) - ('a' as u16) + Self::LETTER_A_BASE),
@@ -1092,10 +1092,10 @@ impl Execution {
         if identifier_count > 0 {
             let mut value = 0;
             if identifier_count >= 1 {
-                value = Self::build_byte_from_identifier(&pre[0])? << 8;
+                value |= Self::build_byte_from_identifier(&pre[0])? << 8;
             }
             if identifier_count >= 2 {
-                value = value | Self::build_byte_from_identifier(&pre[1])?;
+                value |= Self::build_byte_from_identifier(&pre[1])?;
             }
             Ok(value)
         } else {
