@@ -1055,14 +1055,42 @@ impl Execution {
         }
     }
 
+    #[cfg(feature = "four_segment_candle_version")]
+    fn candle_version(&self, version: &Version) -> Result<String> {
+        let build = four_segment_candle_version::build_value_from_pre(&version.pre)?;
+        Ok(format!(
+            "{}.{}.{}.{}",
+            version.major, version.minor, version.patch, build
+        ))
+    }
+
+    #[cfg(not(feature = "four_segment_candle_version"))]
+    fn candle_version(&self, version: &Version) -> Result<String> {
+        Ok(format!(
+            "{}.{}.{}",
+            version.major, version.minor, version.patch
+        ))
+    }
+}
+
+impl Default for Execution {
+    fn default() -> Self {
+        Builder::new().build()
+    }
+}
+
+#[cfg(feature = "four_segment_candle_version")]
+mod four_segment_candle_version {
+    use super::{Error, Result};
+
     const LETTER_A_BASE: u16 = 255 - 26 + 1;
-    const MAX_NUMBER_VALUE: u64 = (Self::LETTER_A_BASE as u64) - 1;
+    const MAX_NUMBER_VALUE: u64 = (LETTER_A_BASE as u64) - 1;
 
     fn build_byte_from_char(pre_an: &str) -> Result<u16> {
         if !pre_an.is_empty() {
             match pre_an.chars().nth(0).unwrap() {
-                c @ 'A'..='Z' => Ok((c as u16) - ('A' as u16) + Self::LETTER_A_BASE),
-                c @ 'a'..='z' => Ok((c as u16) - ('a' as u16) + Self::LETTER_A_BASE),
+                c @ 'A'..='Z' => Ok((c as u16) - ('A' as u16) + LETTER_A_BASE),
+                c @ 'a'..='z' => Ok((c as u16) - ('a' as u16) + LETTER_A_BASE),
                 _ => {
                     Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the first letter of the value ({}) must be an alphabetic letter (a-z or A-Z).", pre_an)))
                 },
@@ -1075,46 +1103,32 @@ impl Execution {
     fn build_byte_from_identifier(identifier: &semver::Identifier) -> Result<u16> {
         match identifier {
             semver::Numeric(n) => {
-                if *n <= Self::MAX_NUMBER_VALUE {
+                if *n <= MAX_NUMBER_VALUE {
                     Ok(*n as u16)
                 } else {
-                    Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the actual value ({}) exceeds the maximum allowed value ({}).", *n, Self::MAX_NUMBER_VALUE)))
+                    Err(Error::Generic(format!("An error occurred trying to convert the pre-release data to a build number: the actual value ({}) exceeds the maximum allowed value ({}).", *n, MAX_NUMBER_VALUE)))
                 }
             }
-            semver::AlphaNumeric(s) => Self::build_byte_from_char(s),
+            semver::AlphaNumeric(s) => build_byte_from_char(s),
         }
     }
 
     const BUILD_RELEASE_VALUE: u16 = std::u16::MAX;
 
-    fn build_value_from_pre(pre: &[semver::Identifier]) -> Result<u16> {
+    pub fn build_value_from_pre(pre: &[semver::Identifier]) -> Result<u16> {
         let identifier_count = pre.len();
         if identifier_count > 0 {
             let mut value = 0;
             if identifier_count >= 1 {
-                value |= Self::build_byte_from_identifier(&pre[0])? << 8;
+                value |= build_byte_from_identifier(&pre[0])? << 8;
             }
             if identifier_count >= 2 {
-                value |= Self::build_byte_from_identifier(&pre[1])?;
+                value |= build_byte_from_identifier(&pre[1])?;
             }
             Ok(value)
         } else {
-            Ok(Self::BUILD_RELEASE_VALUE)
+            Ok(BUILD_RELEASE_VALUE)
         }
-    }
-
-    fn candle_version(&self, version: &Version) -> Result<String> {
-        let build = Self::build_value_from_pre(&version.pre)?;
-        Ok(format!(
-            "{}.{}.{}.{}",
-            version.major, version.minor, version.patch, build
-        ))
-    }
-}
-
-impl Default for Execution {
-    fn default() -> Self {
-        Builder::new().build()
     }
 }
 
@@ -1581,6 +1595,7 @@ mod tests {
                 );
                 assert_eq!(candle_version, expected_version);
             }
+            #[cfg(feature = "four_segment_candle_version")]
             fn expect_err(&self, text_version: &str) {
                 let (execution, semantic_version) = self.prepare_semantic_version(text_version);
                 let _candle_version = execution.candle_version(&semantic_version).expect_err(
@@ -1589,13 +1604,14 @@ mod tests {
             }
         }
 
+        #[cfg(feature = "four_segment_candle_version")]
         #[test]
-        fn sematic_version_correctly_funneled() {
+        fn semantic_version_correctly_funneled() {
             /* Semantic Versions can be suffixed with pre-release or metadata sections.  If a
             semver::Version containing any suffix is used then compilation fails with error
             CNDL0108 followed by error CNDL0010.  candle, the WiX compiler, only accepts versions
             with up to four segments where each segment is separated by a dot and each segment is
-            a positive integer less than 65536.  The upper limit should not a validated here.  If
+            a positive integer less than 65536.  The upper limit should not be validated here.  If
             the limit is ever raised and the value is restricted here then we've blocked our users
             from using a valid feature.  This test ensures only valid values are passed to candle;
             that the semver::Version we use is funneled to a valid candle version. */
@@ -1630,5 +1646,49 @@ mod tests {
             helper.expect_err("1.2.3-A.230");
             helper.expect_err("1.2.3-z.230");
         }
-    }
+
+        #[cfg(not(feature = "four_segment_candle_version"))]
+        #[test]
+        fn semantic_version_correctly_funneled() {
+            /* Semantic Versions can be suffixed with pre-release or metadata sections.  If a
+            semver::Version containing any suffix is used then compilation fails with error
+            CNDL0108 followed by error CNDL0010.  While Windows Installer accepts versions with up
+            to four segments only the first three are used.  Including a fourth segment can cause
+            accidental downgrades and should be avoided.  Each segment is separated by a dot and
+            each segment is a positive integer less than 65536.  The upper limit should not be
+            validated here.  If the limit is ever raised and the value is restricted here then
+            we've blocked our users from using a valid feature.  This test ensures only valid
+            values are passed to Windows Installer; that the semver::Version we use is funneled to
+            a valid three segment version. */
+
+            let helper = SemanticVersionHelper::new();
+            helper.assert_match("0.0.0", "0.0.0");
+            helper.assert_match("65536.65536.65536", "65536.65536.65536");
+            helper.assert_match("0.0.0-0", "0.0.0");
+            helper.assert_match("1.2.3-1", "1.2.3");
+            helper.assert_match("1.2.3-2", "1.2.3");
+            helper.assert_match("1.2.3-0.1", "1.2.3");
+            helper.assert_match("1.2.3-0.229", "1.2.3");
+            helper.assert_match("1.2.3-229.229", "1.2.3");
+            helper.assert_match("3.2.1+FAST", "3.2.1");
+            helper.assert_match("0.0.0-A", "0.0.0");
+            helper.assert_match("0.0.0-M", "0.0.0");
+            helper.assert_match("0.0.0-Z", "0.0.0");
+            helper.assert_match("0.0.0-a", "0.0.0");
+            helper.assert_match("0.0.0-a0", "0.0.0");
+            helper.assert_match("0.0.0-az", "0.0.0");
+            helper.assert_match("0.0.0-m", "0.0.0");
+            helper.assert_match("0.0.0-z", "0.0.0");
+            helper.assert_match("0.0.0-A.0", "0.0.0");
+            helper.assert_match("0.0.0-Z.0", "0.0.0");
+            helper.assert_match("0.0.0-a.0", "0.0.0");
+            helper.assert_match("0.0.0-z.0", "0.0.0");
+            helper.assert_match("0.0.0-a.1", "0.0.0");
+            helper.assert_match("0.0.0-z.229", "0.0.0");
+            helper.assert_match("1.2.3-0.230", "1.2.3");
+            helper.assert_match("1.2.3-230.0", "1.2.3");
+            helper.assert_match("1.2.3-230.230", "1.2.3");
+            helper.assert_match("1.2.3-A.230", "1.2.3");
+            helper.assert_match("1.2.3-z.230", "1.2.3");
+        }    }
 }
